@@ -3,6 +3,6 @@ python:3.12
 traefik:3.1
 redis:7.4
 postgres:17
-spg-registry.cn-hangzhou.cr.aliyuncs.com/spg/openspg-server:latest
+vllm/vllm-openai:v0.7
 # 支持指定架构
 # --platform=linux/arm64 xiaoyaliu/alist
