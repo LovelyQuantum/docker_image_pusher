@@ -13,5 +13,12 @@ minio/minio:RELEASE.2025-02-18T16-25-55Z
 milvusdb/milvus:v2.5.5
 caddy:2.9.1
 
+# dify
+langgenius/dify-web:1.0.1
+langgenius/dify-api:1.0.1
+langgenius/dify-sandbox:0.2.10
+langgenius/dify-plugin-daemon:0.0.4-local
+ubuntu/squid:6.6-24.04_edge
+
 # 支持指定架构
 # --platform=linux/arm64 xiaoyaliu/alist
