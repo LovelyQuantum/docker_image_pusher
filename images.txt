@@ -10,7 +10,7 @@ ubuntu:24.04
 mongo:8.0.6
 
 # milvus
-quay.io/coreos/etcd:3.5
+bitnami/etcd:3.5
 minio/minio:RELEASE.2025-02-18T16-25-55Z
 milvusdb/milvus:v2.5.7
 caddy:2.9.1
