@@ -15,13 +15,19 @@ minio/minio:RELEASE.2025-02-18T16-25-55Z
 milvusdb/milvus:v2.5.7
 caddy:2.9.1
 
-# dify
-langgenius/dify-web:1.0.1
-langgenius/dify-api:1.0.1
-langgenius/dify-sandbox:0.2.10
-langgenius/dify-plugin-daemon:0.0.4-local
-ubuntu/squid:6.6-24.04_edge
-nginx:1.27.4
+# openim
+mongo:7.0
+bitnami/kafka:3.5.1
+minio/minio:RELEASE.2024-01-11T07-46-16Z
+prom/prometheus:v2.51.2
+prom/alertmanager:v0.27.0
+grafana/grafana:11.0.1
+quay.io/coreos/etcd:v3.5.13
+openim/openim-web-front:release-v3.8.3
+openim/openim-admin-front:release-v1.8.4
+prom/node-exporter:v1.7.0
+openim/openim-server:v3.8.3-patch.3
+openim/openim-chat:v1.8.4-patch.2
 
 # 支持指定架构
 # --platform=linux/arm64 xiaoyaliu/alist
