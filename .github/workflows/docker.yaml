@@ -165,7 +165,7 @@ jobs:
         
                 # 检查命名冲突
                 local name_space=$(extract_namespace "$image")
-                name_space="${name_space}_"  # 避免空值影响判断
+                name_space="${name_space}-"  # 避免空值影响判断
         
                 if [[ -n "${temp_map[$image_name]}" ]]; then
                     if [[ "${temp_map[$image_name]}" != "$name_space" ]]; then
