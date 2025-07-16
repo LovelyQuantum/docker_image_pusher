@@ -59,106 +59,248 @@ jobs:
 
     - name: Build and push image Aliyun
       run: |
-        docker login -u $ALIYUN_REGISTRY_USER -p $ALIYUN_REGISTRY_PASSWORD $ALIYUN_REGISTRY
-        # 数据预处理,判断镜像是否重名
+        #!/bin/bash
+        
+        # Docker 镜像拉取和推送脚本
+        # 支持 --platform 和 --rename 选项
+        # 自动处理镜像命名冲突和跳过已存在的镜像
+        
+        set -e  # 出现错误时退出
+        
+        # 全局变量声明
         declare -A duplicate_images
         declare -A temp_map
-        while IFS= read -r line || [ -n "$line" ]; do
-            # 忽略空行与注释
-            [[ -z "$line" ]] && continue
-            if echo "$line" | grep -q '^\s*#'; then
-                continue
+        declare -A custom_names
+        
+        # 配置文件
+        IMAGES_FILE="images.txt"
+        
+        # 函数：检查必需的环境变量
+        check_environment() {
+            local required_vars=("ALIYUN_REGISTRY_USER" "ALIYUN_REGISTRY_PASSWORD" "ALIYUN_REGISTRY" "ALIYUN_NAME_SPACE")
+        
+            for var in "${required_vars[@]}"; do
+                if [[ -z "${!var}" ]]; then
+                    echo "错误: 环境变量 $var 未设置"
+                    exit 1
+                fi
+            done
+        
+            if [[ ! -f "$IMAGES_FILE" ]]; then
+                echo "错误: 配置文件 $IMAGES_FILE 不存在"
+                exit 1
             fi
-            
-            # 获取镜像的完整名称，例如kasmweb/nginx:1.25.3（命名空间/镜像名:版本号）
-            image=$(echo "$line" | awk '{print $NF}')
-            # 将@sha256:等字符删除
-            image="${image%%@*}"
-            echo "image $image"
-            # 获取镜像名:版本号  例如nginx:1.25.3
-            image_name_tag=$(echo "$image" | awk -F'/' '{print $NF}')
-            echo "image_name_tag $image_name_tag"
-            # 获取命名空间 例如kasmweb,  这里有种特殊情况 docker.io/nginx，把docker.io当成命名空间，也OK
-            name_space=$(echo "$image" | awk -F'/' '{if (NF==3) print $2; else if (NF==2) print $1; else print ""}')
-            echo "name_space: $name_space"
-            # 这里不要是空值影响判断
-            name_space="${name_space}_"
-            # 获取镜像名例如nginx
-            image_name=$(echo "$image_name_tag" | awk -F':' '{print $1}')
-            echo "image_name: $image_name"
-            
-            # 如果镜像存在于数组中，则添加temp_map
-            if [[ -n "${temp_map[$image_name]}" ]]; then
-                 # 如果temp_map已经存在镜像名，判断是不是同一命名空间
-                 if [[ "${temp_map[$image_name]}" != $name_space  ]]; then
-                    echo "duplicate image name: $image_name"
-                    duplicate_images[$image_name]="true"
-                 fi
+        }
+        
+        # 函数：登录 Docker 仓库
+        login_docker_registry() {
+            echo "正在登录 Docker 仓库..."
+            docker login -u "$ALIYUN_REGISTRY_USER" -p "$ALIYUN_REGISTRY_PASSWORD" "$ALIYUN_REGISTRY"
+            echo "Docker 仓库登录成功"
+        }
+        
+        # 函数：检查行是否应该跳过（空行或注释）
+        should_skip_line() {
+            local line="$1"
+            [[ -z "$line" ]] || echo "$line" | grep -q '^\s*#'
+        }
+        
+        # 函数：从行中提取自定义名称
+        extract_custom_name() {
+            local line="$1"
+            if echo "$line" | grep -q -- '--rename'; then
+                echo "$line" | sed -n 's/.*--rename[= ]\([^ ]*\).*/\1/p'
+            fi
+        }
+        
+        # 函数：从行中提取镜像名称（移除 --rename 和 --platform 选项）
+        extract_image_name() {
+            local line="$1"
+            local clean_line="$line"
+        
+            # 移除 --rename 选项
+            clean_line=$(echo "$clean_line" | sed 's/--rename[= ][^ ]*//g')
+            # 移除 --platform 选项
+            clean_line=$(echo "$clean_line" | sed 's/--platform[= ][^ ]*//g')
+        
+            # 提取最后一个字段作为镜像名称
+            local image=$(echo "$clean_line" | awk '{print $NF}')
+            # 移除 @sha256: 部分
+            echo "${image%%@*}"
+        }
+        
+        # 函数：从镜像名称中提取命名空间
+        extract_namespace() {
+            local image="$1"
+            echo "$image" | awk -F'/' '{if (NF==3) print $2; else if (NF==2) print $1; else print ""}'
+        }
+        
+        # 函数：从镜像名称中提取镜像名（不含命名空间和版本）
+        extract_image_base_name() {
+            local image="$1"
+            local image_name_tag=$(echo "$image" | awk -F'/' '{print $NF}')
+            echo "$image_name_tag" | awk -F':' '{print $1}'
+        }
+        
+        # 函数：数据预处理 - 检测镜像名冲突和收集自定义名称
+        preprocess_images() {
+            echo "开始数据预处理..."
+        
+            while IFS= read -r line || [[ -n "$line" ]]; do
+                should_skip_line "$line" && continue
+        
+                local custom_name=$(extract_custom_name "$line")
+                local image=$(extract_image_name "$line")
+        
+                echo "处理镜像: $image"
+        
+                # 存储自定义名称映射
+                if [[ -n "$custom_name" ]]; then
+                    custom_names["$image"]="$custom_name"
+                    echo "  -> 自定义名称: $custom_name"
+                    image_name="$custom_name"
+                else
+                    image_name=$(extract_image_base_name "$image")
+                fi
+        
+                # 检查命名冲突
+                local name_space=$(extract_namespace "$image")
+                name_space="${name_space}_"  # 避免空值影响判断
+        
+                if [[ -n "${temp_map[$image_name]}" ]]; then
+                    if [[ "${temp_map[$image_name]}" != "$name_space" ]]; then
+                        echo "  -> 发现命名冲突: $image_name"
+                        duplicate_images["$image_name"]="true"
+                    fi
+                else
+                    temp_map["$image_name"]="$name_space"
+                fi
+        
+            done < "$IMAGES_FILE"
+        
+            echo "数据预处理完成"
+        }
+        
+        # 函数：从行中提取平台信息
+        extract_platform() {
+            local line="$1"
+            echo "$line" | awk -F'--platform[ =]' '{if (NF>1) print $2}' | awk '{print $1}'
+        }
+        
+        # 函数：生成平台前缀
+        generate_platform_prefix() {
+            local platform="$1"
+            if [[ -z "$platform" ]]; then
+                echo ""
             else
-                # 存镜像的命名空间
-                temp_map[$image_name]=$name_space
-            fi       
-        done < images.txt
-        
-        
-        while IFS= read -r line || [ -n "$line" ]; do
-            # 忽略空行与注释
-            [[ -z "$line" ]] && continue
-            if echo "$line" | grep -q '^\s*#'; then
-                continue
+                echo "${platform//\//_}_"
             fi
+        }
         
-            platform=$(echo "$line" | awk -F'--platform[ =]' '{if (NF>1) print $2}' | awk '{print $1}')
-            echo "platform is $platform"
-            # 如果存在架构信息 将架构信息拼到镜像名称前面
-            if [ -z "$platform" ]; then
-                platform_prefix=""
+        # 函数：生成最终的镜像名称标签
+        generate_final_image_tag() {
+            local image="$1"
+        
+            if [[ -n "${custom_names[$image]}" ]]; then
+                # 使用自定义名称
+                local custom_name="${custom_names[$image]}"
+                local image_name_tag=$(echo "$image" | awk -F'/' '{print $NF}')
+                image_name_tag="${image_name_tag%%@*}"  # 移除 @sha256
+                local version=$(echo "$image_name_tag" | awk -F':' '{if (NF>1) print ":" $2; else print ""}')
+                echo "${custom_name}${version}"
             else
-                platform_prefix="${platform//\//_}_"
+                # 使用原始逻辑
+                local image_name_tag=$(echo "$image" | awk -F'/' '{print $NF}')
+                local name_space=$(extract_namespace "$image")
+                local image_name=$(extract_image_base_name "$image")
+        
+                local name_space_prefix=""
+                if [[ -n "${duplicate_images[$image_name]}" && -n "$name_space" ]]; then
+                    name_space_prefix="${name_space}_"
+                fi
+        
+                image_name_tag="${image_name_tag%%@*}"  # 移除 @sha256
+                echo "${name_space_prefix}${image_name_tag}"
             fi
-            echo "platform_prefix is $platform_prefix"
-            # 获取镜像的完整名称，例如kasmweb/nginx:1.25.3（命名空间/镜像名:版本号）
-            image=$(echo "$line" | awk '{print $NF}')
-
-            # 获取 镜像名:版本号  例如nginx:1.25.3
-            image_name_tag=$(echo "$image" | awk -F'/' '{print $NF}')
-            # 获取命名空间 例如kasmweb  这里有种特殊情况 docker.io/nginx，把docker.io当成命名空间，也OK
-            name_space=$(echo "$image" | awk -F'/' '{if (NF==3) print $2; else if (NF==2) print $1; else print ""}')
-            # 获取镜像名例  例如nginx
-            image_name=$(echo "$image_name_tag" | awk -F':' '{print $1}')
-            
-            name_space_prefix=""
-            # 如果镜像名重名
-            if [[ -n "${duplicate_images[$image_name]}" ]]; then
-               #如果命名空间非空，将命名空间加到前缀
-               if [[ -n "${name_space}" ]]; then
-                  name_space_prefix="${name_space}_"
-               fi
-            fi
-
-            # 将@sha256:等字符删除
-            image_name_tag="${image_name_tag%%@*}"
-            new_image="$ALIYUN_REGISTRY/$ALIYUN_NAME_SPACE/$platform_prefix$name_space_prefix$image_name_tag"
-            echo "检查镜像是否存在: $new_image"
-            if docker manifest inspect $new_image >/dev/null 2>&1; then
-                echo "镜像 $new_image 已存在，跳过拉取和推送。"
-                continue  # 存在则跳过后续操作
-            fi
-            echo "docker pull $line"
-            docker pull $line
-            echo "docker tag $image $new_image"
-            docker tag $image $new_image
-            echo "docker push $new_image"
-            docker push $new_image
-            echo "开始清理磁盘空间"
+        }
+        
+        # 函数：检查镜像是否已存在
+        image_exists() {
+            local image="$1"
+            docker manifest inspect "$image" >/dev/null 2>&1
+        }
+        
+        # 函数：显示磁盘空间
+        show_disk_space() {
             echo "=============================================================================="
             df -hT
             echo "=============================================================================="
-            docker rmi $image
-            docker rmi $new_image
-            echo "磁盘空间清理完毕"
-            echo "=============================================================================="
-            df -hT
-            echo "=============================================================================="     
-            
-        done < images.txt
+        }
+        
+        # 函数：处理单个镜像
+        process_single_image() {
+            local line="$1"
+        
+            echo "处理: $line"
+        
+            local platform=$(extract_platform "$line")
+            local platform_prefix=$(generate_platform_prefix "$platform")
+            local image=$(extract_image_name "$line")
+            local final_image_name_tag=$(generate_final_image_tag "$image")
+        
+            local new_image="$ALIYUN_REGISTRY/$ALIYUN_NAME_SPACE/$platform_prefix$final_image_name_tag"
+        
+            echo "目标镜像: $new_image"
+        
+            # 检查镜像是否已存在
+            if image_exists "$new_image"; then
+                echo "镜像已存在，跳过处理"
+                return 0
+            fi
+        
+            # 拉取、标记和推送镜像
+            echo "正在拉取镜像..."
+            docker pull "$line"
+        
+            echo "正在标记镜像..."
+            docker tag "$image" "$new_image"
+        
+            echo "正在推送镜像..."
+            docker push "$new_image"
+        
+            # 清理本地镜像
+            echo "正在清理本地镜像..."
+            show_disk_space
+            docker rmi "$image" "$new_image"
+            echo "本地镜像清理完成"
+            show_disk_space
+        }
+        
+        # 函数：处理所有镜像
+        process_all_images() {
+            echo "开始处理镜像..."
+        
+            while IFS= read -r line || [[ -n "$line" ]]; do
+                should_skip_line "$line" && continue
+                process_single_image "$line"
+                echo "----------------------------------------"
+            done < "$IMAGES_FILE"
+        
+            echo "所有镜像处理完成"
+        }
+        
+        # 主函数
+        main() {
+            echo "开始执行 Docker 镜像同步脚本"
+        
+            check_environment
+            login_docker_registry
+            preprocess_images
+            process_all_images
+        
+            echo "脚本执行完成"
+        }
+        
+        # 执行主函数
+        main "$@"
+
