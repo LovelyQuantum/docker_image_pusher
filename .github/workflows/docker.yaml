@@ -60,7 +60,7 @@ jobs:
     - name: Build and push image Aliyun
       run: |
         #!/bin/bash
-        
+
         # Docker 镜像拉取和推送脚本
         # 支持 --platform 和 --rename 选项
         # 自动处理镜像命名冲突和跳过已存在的镜像
@@ -227,7 +227,22 @@ jobs:
         # 函数：检查镜像是否已存在
         image_exists() {
             local image="$1"
-            docker manifest inspect "$image" >/dev/null 2>&1
+        
+            # 对于阿里云镜像仓库，使用 docker manifest inspect 检查
+            # 添加更详细的错误检查
+            local output
+            local exit_code
+        
+            output=$(docker manifest inspect "$image" 2>&1)
+            exit_code=$?
+        
+            if [[ $exit_code -eq 0 ]]; then
+                echo "检查结果: 镜像 $image 已存在"
+                return 0
+            else
+                echo "检查结果: 镜像 $image 不存在 (错误: $output)"
+                return 1
+            fi
         }
         
         # 函数：显示磁盘空间
@@ -303,4 +318,4 @@ jobs:
         
         # 执行主函数
         main "$@"
-
+        
