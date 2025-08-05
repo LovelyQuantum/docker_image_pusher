@@ -29,5 +29,10 @@ prom/node-exporter:v1.7.0
 openim/openim-server:v3.8.3-patch.3
 openim/openim-chat:v1.8.4-patch.2
 
+# gorse
+zhenghaoz/gorse-master
+zhenghaoz/gorse-server
+zhenghaoz/gorse-worker
+
 # 支持指定架构
 # --platform=linux/arm64 xiaoyaliu/alist
