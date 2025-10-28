@@ -1,10 +1,8 @@
-golang:1.22
+golang:1.24
 python:3.13
-traefik:3.1
+traefik:3.5
 redis:7.4
 postgres:17
-vllm/vllm-openai:v0.7.2
-nvcr.io/nvidia/pytorch:24.07-py3
 tobyxdd/hysteria:v2.6.1
 ubuntu:24.04
 mongo:8.0.6
